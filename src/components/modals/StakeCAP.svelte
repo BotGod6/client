@@ -13,29 +13,41 @@
 	import { focusInput, hideModal } from '@lib/ui'
 	import LabelValue from '../layout/LabelValue.svelte'
 
-	let amount, isSubmitting, walletBalance = "0.0";
+	let amount, isSubmitting, isApproving = false, isCheckingAllowance = true, walletBalance = "0.0";
 
 	$: formattedWalletBalance = formatCAPForDisplay(walletBalance);
+	$: currentAllowance = $allowances['CAP']?.['Staking'];
+	$: needsApproval = currentAllowance === undefined || currentAllowance * 1 < (amount * 1 || 0);
 
 	async function submit() {
-
 		if (!amount) return focusInput('Amount');
 		isSubmitting = true;
-
-		const success = await depositCAP(amount);
-		if (success) {
-			hideModal();
+		try {
+			const success = await depositCAP(amount);
+			if (success) hideModal();
+		} finally {
+			isSubmitting = false;
 		}
-		isSubmitting = false;
-
 	}
 
 	async function checkAllowance() {
-		await getAllowance('CAP', 'FundStore');
+		isCheckingAllowance = true;
+		try {
+			await getAllowance('CAP', 'Staking');
+		} finally {
+			isCheckingAllowance = false;
+		}
 	}
 
 	async function _approveAsset() {
-		const result = await approveAsset('CAP', 'FundStore');
+		if (isApproving || isCheckingAllowance) return;
+		isApproving = true;
+		try {
+			await approveAsset('CAP', 'Staking');
+			await getAllowance('CAP', 'Staking');
+		} finally {
+			isApproving = false;
+		}
 	}
 
 	async function getBalance() {
@@ -50,11 +62,6 @@
 	});
 
 </script>
-
-<style>
-
-
-</style>
 
 <Modal title='Stake CAP' width={280}>
 	
@@ -74,10 +81,12 @@
 			</div>
 
 			<div>
-				{#if $allowances['CAP']?.['FundStore'] * 1 <= amount * 1}
-				<Button noSubmit={true} label={`Approve CAP`} on:click={_approveAsset} />
+				{#if isCheckingAllowance || isApproving}
+					<Button noSubmit={true} isLoading={true} label='Checking approval' />
+				{:else if needsApproval}
+					<Button noSubmit={true} isLoading={isApproving} label='Approve CAP' on:click={_approveAsset} />
 				{:else}
-				<Button isLoading={isSubmitting} label={`Stake`} />
+					<Button isLoading={isSubmitting} label='Stake' />
 				{/if}
 			</div>
 		</form>
