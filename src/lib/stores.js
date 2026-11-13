@@ -71,21 +71,41 @@ export const CAPStake = writable(0);
 
 // Pool performance stats (including fees)
 function getPoolPerformance(stats, latestIndex, oldestIndex) {
-	if (!stats) return;
-	let perf = {};
+	if (!stats || typeof stats !== 'object') return {};
+	const toFiniteNumber = (value) => {
+		const number = Number(value);
+		return Number.isFinite(number) ? number : 0;
+	};
+	const requestedLatestIndex = Math.max(0, Math.floor(toFiniteNumber(latestIndex)));
+	const requestedOldestIndex = Math.max(requestedLatestIndex, Math.floor(toFiniteNumber(oldestIndex)));
+	const perf = {};
 	for (const assetLabel in stats) {
-		let data = stats[assetLabel]; // array
-		if (!data.length) continue;
-		if (oldestIndex >= data.length) {
-			oldestIndex = data.length - 1;
+		const data = stats[assetLabel];
+		if (!Array.isArray(data) || data.length === 0) continue;
+
+		// Pool histories are newest-first. Clamp indexes per asset; never mutate
+		// the requested window while iterating through assets of different ages.
+		const lastIndex = Math.min(requestedLatestIndex, data.length - 1);
+		const firstIndex = Math.min(requestedOldestIndex, data.length - 1);
+		const oldestStat = formatPoolStat(data[firstIndex]);
+		const latestStat = formatPoolStat(data[lastIndex]);
+		if (!oldestStat || !latestStat) {
+			perf[assetLabel] = 0;
+			continue;
 		}
-		let oldestStat = formatPoolStat(data[oldestIndex]);
-		// startingBalance allows you to calculate performance
-		let startingBalance = oldestStat.startingBalance;
-		let latestStat = formatPoolStat(data[latestIndex]);
-		let totalDeposits = data.reduce((sum, item) => sum + (item.deposits || 0), 0);
-		let totalWithdrawals = data.reduce((sum, item) => sum + (item.withdrawals || 0), 0);
-		perf[assetLabel] = latestStat.balance == 0 ? 0 : (latestStat.balance - startingBalance - (totalDeposits || 0) + (totalWithdrawals || 0)) / latestStat.balance;
+
+		const startingBalance = toFiniteNumber(oldestStat.startingBalance);
+		const latestBalance = toFiniteNumber(latestStat.balance);
+		// Only deposits and withdrawals inside the selected performance window
+		// should be removed from the balance delta.
+		const windowStats = data.slice(lastIndex, firstIndex + 1);
+		const totalDeposits = windowStats.reduce((sum, item) => sum + toFiniteNumber(item?.deposits), 0);
+		const totalWithdrawals = windowStats.reduce((sum, item) => sum + toFiniteNumber(item?.withdrawals), 0);
+
+		perf[assetLabel] = latestBalance === 0
+			? 0
+			: (latestBalance - startingBalance - totalDeposits + totalWithdrawals) / latestBalance;
+		if (!Number.isFinite(perf[assetLabel])) perf[assetLabel] = 0;
 	}
 	return perf;
 }
