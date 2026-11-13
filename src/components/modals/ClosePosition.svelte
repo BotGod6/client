@@ -49,9 +49,17 @@
 	$: calculatePnl($prices, amount);
 
 	function setSizeToClosePercent(_amount) {
-		if (!data.size) return;
-		sizeToClosePercent = 100 * _amount / data.size;
-		if (sizeToClosePercent > 100) sizeToClosePercent = 100;
+		const positionSize = Number(data?.size);
+		const requestedSize = Number(_amount);
+
+		// Empty, malformed, or unavailable values should never produce NaN/Infinity.
+		if (!Number.isFinite(positionSize) || positionSize <= 0 ||
+			!Number.isFinite(requestedSize) || requestedSize <= 0) {
+			sizeToClosePercent = 0;
+			return;
+		}
+
+		sizeToClosePercent = Math.min(100, Math.max(0, 100 * requestedSize / positionSize));
 	}
 
 	$: setSizeToClosePercent(amount);
@@ -104,7 +112,7 @@
 			</div>
 
 			<div class='row'>
-				<LabelValue label='Size to Close (%)' value={`${formatForDisplay(sizeToClosePercent)}%`} />
+				<LabelValue label='Size to Close (%)' value={`${sizeToClosePercent.toFixed(2)}%`} />
 			</div>
 
 			<OrderDetails market={data.market} asset={data.asset} size={amount} isClose={true} clickableFee={false} />
